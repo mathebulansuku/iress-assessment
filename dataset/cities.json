@@ -1,0 +1,12 @@
+[
+  {"country": "Iceland", "city": "Reykjavik", "population": 128793},
+  {"country": "New Zealand", "city": "Wellington", "population": 215100},
+  {"country": "Australia", "city": "Canberra", "population": 472290},
+  {"country": "USA", "city": "Juneau", "population": 32031},
+  {"country": "USA", "city": "Boulder", "population": 108250},
+  {"country": "Japan", "city": "Nara", "population": 364000},
+  {"country": "Japan", "city": "Otaru", "population": 117900},
+  {"country": "Canada", "city": "Whitehorse", "population": 28106},
+  {"country": "Canada", "city": "Iqaluit", "population": 7740}
+]
+
