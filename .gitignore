@@ -1,6 +1,10 @@
 .terraform.lock.hcl
 .terraform/
+modules/lambda/lambda.zip
 terraform.tfstate
 terraform.tfstate.backup
 .terraform
 providers
+archive
+aws
+random
