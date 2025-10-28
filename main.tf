@@ -1,22 +1,16 @@
 terraform {
+  required_version = ">= 1.5.0"
   required_providers {
     aws = {
       source  = "hashicorp/aws"
       version = "6.18.0"
     }
-    archive = {
-      source  = "hashicorp/archive"
-      version = "~> 2.4"
-    }
-    random = {
-      source  = "hashicorp/random"
-      version = "~> 3.6"
-    }
+
   }
 
   backend "s3" {
     bucket         = "iress-assessment-tf-state-2025"
-    key            = "global/terraform.tfstate"
+    key            = "env/dev/terraform.tfstate"
     region         = "af-south-1"
     dynamodb_table = "iress-assessment-tf-locks"
     encrypt        = true
@@ -24,11 +18,13 @@ terraform {
 }
 
 provider "aws" {
-  region = "af-south-1"
+  region = var.aws_region
 }
 
 resource "aws_s3_bucket" "tf_state" {
-  bucket = "iress-assessment-tf-state-2025"
+  bucket = var.tf_state_bucket_name
+
+  tags = local.common_tags
 
   # lifecycle {
   #   prevent_destroy = true
@@ -38,7 +34,7 @@ resource "aws_s3_bucket" "tf_state" {
 resource "aws_s3_bucket_versioning" "tf_state" {
   bucket = aws_s3_bucket.tf_state.id
   versioning_configuration {
-    status = "Enabled"
+    status = var.tf_state_versioning_enabled ? "Enabled" : "Suspended"
   }
 }
 
@@ -46,7 +42,7 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "tf_state" {
   bucket = aws_s3_bucket.tf_state.id
   rule {
     apply_server_side_encryption_by_default {
-      sse_algorithm = "AES256"
+      sse_algorithm = var.tf_state_sse_algorithm
     }
   }
 }
@@ -64,7 +60,7 @@ resource "aws_s3_bucket_public_access_block" "tf_state" {
 
 
 resource "aws_dynamodb_table" "tf_lock" {
-  name         = "iress-assessment-tf-locks"
+  name         = var.tf_lock_table_name
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "LockID"
 
@@ -80,47 +76,49 @@ resource "aws_dynamodb_table" "tf_lock" {
 
 
 resource "random_id" "dataset_suffix" {
-  byte_length = 3
+  byte_length = var.random_suffix_byte_length
 }
 
 module "dataset_bucket" {
   source      = "./modules/s3-data"
-  bucket_name = "iress-assessment-dataset-${random_id.dataset_suffix.hex}"
-  source_dir  = "${path.root}/dataset"
-  tags = {
-    Project = "iress-assessment"
-    Env     = "dev"
-  }
+  bucket_name = "${var.dataset_bucket_prefix}-${random_id.dataset_suffix.hex}"
+  source_dir  = coalesce(var.dataset_source_dir, "${path.root}/dataset")
+  tags        = local.common_tags
 }
 
 module "lambda" {
   source         = "./modules/lambda"
-  name           = "iress-hello"
+  name           = var.lambda_name
   dataset_bucket = module.dataset_bucket.bucket_name
-  dataset_key    = "cities.json"
+  dataset_key    = var.lambda_dataset_key
+  tags           = local.common_tags
   # Optional: customize runtime/handler or source_content
   # runtime = "python3.11"
   # handler = "index.handler"
 }
 
 module "api_gateway" {
-  source        = "./modules/api-gateway"
-  name          = "iress-http-api"
-  protocol_type        = "HTTP"
-  create_default_stage = true
-  stage_name           = "$default"
-  auto_deploy          = true
+  source               = "./modules/api-gateway"
+  name                 = var.api_name
+  protocol_type        = var.api_protocol_type
+  create_default_stage = var.api_create_default_stage
+  stage_name           = var.api_stage_name
+  auto_deploy          = var.api_auto_deploy
 
   # Integrate Lambda at /hello with GET
-  integrate_lambda    = true
+  integrate_lambda    = var.api_integrate_lambda
   lambda_function_arn = module.lambda.arn
-  lambda_route_path   = "/hello"
-  lambda_method       = "GET"
+  lambda_route_path   = var.api_lambda_route_path
+  lambda_method       = var.api_lambda_method
 
   # HTTP API auto-deploy handles deployments; no mock needed
 
-  tags = {
-    Project = "iress-assessment"
-    Env     = "dev"
-  }
+  tags = local.common_tags
+}
+
+module "frontend_website" {
+  source      = "./modules/s3-website"
+  bucket_name = "${var.frontend_bucket_prefix}-${random_id.dataset_suffix.hex}"
+  source_dir  = coalesce(var.frontend_source_dir, "${path.root}/frontend")
+  tags        = local.common_tags
 }
