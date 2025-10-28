@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Popular Countries</title>
+    <link rel="stylesheet" href="style.css" />
+    <script src="config.js" defer></script>
+    <script src="app.js" defer></script>
+  </head>
+  <body>
+    <main class="container">
+      <h1>Most Popular Countries</h1>
+      <p class="subtitle">Displays the top countries by total population from your API.</p>
+
+      <section class="config">
+        <label for="apiUrl">API URL</label>
+        <div class="row">
+          <input id="apiUrl" type="url" placeholder="https://xxx.execute-api.region.amazonaws.com" />
+          <button id="loadBtn">Load</button>
+        </div>
+        <p class="hint">Tip: copy <code>config.example.js</code> to <code>config.js</code> and set your URL to prefill.</p>
+      </section>
+
+      <section id="status" class="status hidden"></section>
+
+      <section>
+        <ul id="list" class="cards"></ul>
+      </section>
+    </main>
+  </body>
+  </html>
+
