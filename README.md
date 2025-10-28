@@ -1,126 +1,130 @@
-Iress Assessment — Terraform, API, and Frontend
+# Iress Assessment — Terraform, API, and Frontend
 
-This repo provisions a small serverless stack on AWS and a minimal frontend to display the most popular countries by total population computed from a dataset in S3. I built it end‑to‑end with Terraform, and used Codex as an assistant for troubleshooting, automation, and scaffolding.
+This repo provisions a small serverless stack on AWS and a minimal frontend to display the most popular countries by total population computed from a dataset in S3. I built it end-to-end with Terraform, and used Codex as an assistant for troubleshooting, automation, and scaffolding.
 
-**What It Deploys**
+## What It Deploys
 - HTTP API (API Gateway v2) integrated with a Lambda function that:
-- Reads a JSON dataset from S3
-- Aggregates population by country and returns the top results
-- Also serves a tiny HTML UI at `/` and `/ui` (no CloudFront required)
+  - Reads a JSON dataset from S3
+  - Aggregates population by country and returns the top results
+  - Also serves a tiny HTML UI at `/` and `/ui` (no CloudFront required)
 - S3 bucket holding the dataset (and uploads `dataset/cities.json`)
 - Optional S3 static website for a simple frontend (kept private by default, to respect account-level Block Public Access)
 - Remote Terraform state in S3 with DynamoDB state locking
 
-**Key Files**
-- Backend config and modules wiring: `main.tf:11`
-- API URL output: `outputs.tf:9`
-- Lambda handler (returns JSON and serves the UI): `src/index.py:23`
-
-**Prerequisites**
+## Setup (Quick Start)
+Prereqs
 - Terraform >= 1.5
-- AWS account/credentials with permissions to create the resources listed above
-- Default region: `af-south-1` (configurable via variable)
+- AWS credentials with permissions for S3, Lambda, API Gateway, IAM, DynamoDB
+- Default region is `af-south-1` (override via `-var="aws_region=..."` if needed)
 
-**How I Solved the Remote State Bootstrap**
-When I first ran `terraform plan`, backend initialization failed because the S3 bucket and DynamoDB table for the remote backend didn’t exist yet. Terraform configures backends before creating resources, so we need a short bootstrap phase.
+Steps
+1) Initialize and apply:
+   - `terraform init`
+   - `terraform apply`
+2) Grab outputs:
+   - API URL: `terraform output -raw api_url`
+   - Frontend (S3 website) bucket: `terraform output -raw frontend_bucket`
+   - Frontend (S3 website) endpoint: `terraform output -raw frontend_url`
+3) Try the API:
+   - JSON: `${api_url}/hello`
+   - Inline UI: `${api_url}/ui` (or `${api_url}/`)
 
-What I did (with Codex guiding and executing):
+If the S3 website needs to be public, you must first allow it at the AWS account level (S3 Block Public Access), or use the API-served UI at `/ui`.
+
+## Bootstrap Notes (Remote State)
+On first run, remote state (S3/DynamoDB) may not exist yet. Backends initialize before resources, so bootstrap is needed. What I did with Codex’s help:
 - Initialize locally and create backend infra
-  - Clean the working directory (drop any remembered backend):
+  - Clean working dir (drop remembered backend):
     - PowerShell: `Remove-Item -Recurse -Force .terraform -ErrorAction SilentlyContinue; Remove-Item -Force .terraform.lock.hcl, terraform.tfstate, terraform.tfstate.backup -ErrorAction SilentlyContinue`
-  - Disable backend temporarily (Codex commented it, then re‑enabled later), then:
+  - Disable backend temporarily, then:
     - `terraform init -backend=false`
     - `terraform plan -out=tfplan -lock=false -target="aws_s3_bucket.tf_state" -target="aws_dynamodb_table.tf_lock"`
     - `terraform apply -auto-approve "tfplan"`
-    - If the DynamoDB table already existed, we imported it: `terraform import aws_dynamodb_table.tf_lock iress-assessment-tf-locks`
-- Re‑enable the backend and migrate state
-  - To avoid a digest mismatch, Codex switched to a new key (`env/dev/terraform.tfstate`) in `main.tf:13`
+    - If the DynamoDB table already existed, import it: `terraform import aws_dynamodb_table.tf_lock iress-assessment-tf-locks`
+- Re-enable the backend and migrate state
+  - To avoid a digest mismatch, switch to a fresh key (e.g., `env/dev/terraform.tfstate` in `main.tf:13`)
   - `terraform init -migrate-state -force-copy`
-- Verify and continue as normal
-  - `terraform plan`
+- Verify: `terraform plan`
 
-Notes
-- Backend block (S3) is in `main.tf:11`
-- Provider region is variable-driven (default `af-south-1`): `main.tf:20`
+## Design Rationale
+- Remote state with locking
+  - S3 for state + DynamoDB locks to prevent concurrent writes; versioning + SSE on the state bucket for safety.
+- HTTP API (API Gateway v2)
+  - Lower cost and simpler than REST API for this use case; `$default` stage for minimal setup.
+- Lambda + S3 dataset
+  - Stateless function reads `dataset/cities.json` and aggregates by `country` → `population` fields.
+- Minimal frontend options
+  - Inline UI from Lambda at `/ui` avoids S3 public website and CloudFront, matching “no CloudFront” requirement.
+  - A reusable S3 website module exists but is private by default due to typical account-level Block Public Access.
+- Modularity and portability
+  - Variables drive names/regions; modules (`api-gateway`, `lambda`, `s3-data`, `s3-website`) keep concerns isolated.
+- Operations hygiene
+  - Clear outputs (`api_url`, website info), small targeted imports for pre-existing resources (IAM role, Lambda permission).
 
-**Handling Pre‑existing Resources**
-- IAM Role existed already: imported it so Terraform wouldn’t recreate it
-  - `terraform import 'module.lambda.aws_iam_role.this[0]' iress-hello-role`
-- Lambda permission already existed for API Gateway: imported, then Terraform replaced it with current API id
-  - `terraform import 'module.api_gateway.aws_lambda_permission.apigw_invoke[0]' 'arn:aws:lambda:af-south-1:<acct>:function:iress-hello/AllowAPIGatewayInvoke'`
+## Assumptions
+- You have AWS credentials pointing to the intended account in `af-south-1` (or you override the region).
+- S3 bucket names must be globally unique; defaults may need overrides in multi-tenant environments.
+- The dataset `dataset/cities.json` contains records with `country` and `population` (coercible to integer).
+- Account-level S3 Block Public Access is enabled (common default). Public websites require changing that, which we avoided.
+- Using AWS-managed policies (e.g., `AWSLambdaBasicExecutionRole`) is acceptable for this exercise.
+- Keeping costs minimal (no CloudFront, on-demand DynamoDB, small Lambda package).
 
-**Deploy**
-- Initialize and apply:
-  - `terraform init`
-  - `terraform apply`
-- Outputs (examples):
-  - API base URL: `terraform output -raw api_url`
-  - Frontend website bucket: `terraform output -raw frontend_bucket`
-  - Frontend website endpoint (may be blocked by account public access): `terraform output -raw frontend_url`
-
-**Using The API**
+## Using The API
 - JSON endpoint: `${api_url}/hello`
 - Inline UI (served by Lambda): `${api_url}/ui` or `${api_url}/`
   - The HTML page fetches `./hello` and renders the top countries.
 
-Implementation notes
-- UI in Lambda: see `src/index.py:23`
-- API module outputs include the API endpoint and an invoke URL that accounts for the stage: `modules/api-gateway/outputs.tf:23`
-
-**Optional Static Frontend (S3)**
-A minimal static app is also included in `frontend/` with a helper script to point it at your API.
+## Optional Static Frontend (S3)
+The `frontend/` folder includes a static app and a helper to point it at your API.
 
 - Files:
-  - HTML/CSS/JS: `frontend/index.html`, `frontend/style.css`, `frontend/app.js`
+  - `frontend/index.html`, `frontend/style.css`, `frontend/app.js`
   - Example config: `frontend/config.example.js`
-  - Script to generate `frontend/config.js` from Terraform output: `scripts/generate_frontend_config.ps1:1`
+  - Generator: `scripts/generate_frontend_config.ps1`
 - Generate config and open locally:
   - `powershell ./scripts/generate_frontend_config.ps1`
-  - Then open `frontend/index.html` in your browser (or serve via a static server)
-- Terraform module for S3 website (private by default): `modules/s3-website`
-  - You can set it public by enabling bucket policy and ensuring account-level Block Public Access allows it (`public_read = true`). I kept it off per the “no CloudFront” and security requirements.
+  - Open `frontend/index.html` directly or via any static file server
+- Terraform module for S3 website: `modules/s3-website` (private by default)
+  - To make public, set `public_read = true` and ensure account-level settings allow it.
 
-**Variables You Can Tweak**
+## Variables You Can Tweak
 - Region and backend
   - `variables.tf:1` (via `var.aws_region`)
-  - Backend S3 config in `main.tf:11` (string values)
+  - Backend strings in `main.tf:11` (bucket, key, region, DynamoDB table)
 - Names and prefixes
-  - State bucket: `variables.tf` → `tf_state_bucket_name`
-  - Lock table: `variables.tf` → `tf_lock_table_name`
-  - Dataset bucket prefix: `variables.tf` → `dataset_bucket_prefix`
-  - Frontend bucket prefix: `variables.tf` → `frontend_bucket_prefix`
+  - State bucket: `tf_state_bucket_name`
+  - Lock table: `tf_lock_table_name`
+  - Dataset bucket prefix: `dataset_bucket_prefix`
+  - Frontend bucket prefix: `frontend_bucket_prefix`
 - API/Lambda behavior
-  - Lambda name and dataset key: `variables.tf` → `lambda_name`, `lambda_dataset_key`
-  - API name, stage, and route: `variables.tf` → `api_*`
+  - Lambda: `lambda_name`, `lambda_dataset_key`, optional `source_dir`
+  - API: `api_name`, `api_stage_name`, `api_integrate_lambda`, `api_lambda_route_path`, `api_lambda_method`
 
-**Troubleshooting**
-- “S3 bucket does not exist” or backend init loops
-  - Initialize locally and create the bucket/table, then migrate state (see the Bootstrap section above)
+## Troubleshooting
+- “S3 bucket does not exist” during init
+  - Use the bootstrap flow above (local init, targeted create, then migrate).
 - DynamoDB digest mismatch
-  - Use a fresh state key (e.g., `env/dev/terraform.tfstate`) and `terraform init -migrate-state -force-copy`
-- EntityAlreadyExists for IAM Role or Lambda permission
-  - Import the existing resource and rerun `terraform plan`
-- S3 website 403 with PutBucketPolicy
-  - Account-level Block Public Access prevents public policies. Use the Lambda-served UI (`/ui`) or host the static site elsewhere.
+  - Use a new state `key` and `terraform init -migrate-state -force-copy`.
+- EntityAlreadyExists (IAM role or Lambda permission)
+  - Import the existing resource and re-run `terraform plan`.
+- S3 website 403 (PutBucketPolicy)
+  - Account-level Block Public Access is on; either change account settings or serve UI from the API (`/ui`).
 
-**How I Used Codex As An Assistant**
+## How I Used Codex As An Assistant
 Codex acted as a terminal-based coding partner that:
-- Analyzed Terraform configuration to identify the bootstrap deadlock (backend initializes before resources)
-- Executed targeted plans/applies to create backend infra safely
-- Migrated local → S3 state and resolved a DynamoDB digest mismatch by changing the state key
-- Imported pre‑existing IAM/Lambda permission resources into state to avoid conflicts
-- Added helpful outputs (API URL) and a small frontend
-- Implemented a no‑CloudFront option by serving a tiny HTML UI directly from Lambda
-- Created a reusable S3 website module kept private by default
+- Analyzed the Terraform configuration to identify the bootstrap deadlock
+- Executed targeted plans/applies to create backend infra
+- Migrated local → S3 state using a new key to resolve a digest mismatch
+- Imported pre-existing IAM and Lambda permission resources
+- Added outputs and a small frontend; implemented a “no CloudFront” inline UI
+- Created a reusable S3 website module (kept private by default)
 - Committed changes as small, logical Git commits using my identity
 
-Codex’s contributions were surgical and auditable: it prefaced terminal actions, updated files via patch, used imports when appropriate, and verified results with plans before applies.
-
-**Cleanup**
+## Cleanup
 - Remove resources: `terraform destroy`
 - Optional safety: uncomment `prevent_destroy` for the backend state bucket and lock table in `main.tf`
 
-**Repository Structure (short)**
+## Repository Structure (short)
 - Terraform root and modules
   - `main.tf:11`, `variables.tf:1`, `outputs.tf:1`
   - `modules/api-gateway`, `modules/lambda`, `modules/s3-data`, `modules/s3-website`
