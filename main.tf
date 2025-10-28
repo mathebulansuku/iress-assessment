@@ -92,9 +92,6 @@ module "lambda" {
   dataset_bucket = module.dataset_bucket.bucket_name
   dataset_key    = var.lambda_dataset_key
   tags           = local.common_tags
-  # Optional: customize runtime/handler or source_content
-  # runtime = "python3.11"
-  # handler = "index.handler"
 }
 
 module "api_gateway" {
@@ -105,13 +102,10 @@ module "api_gateway" {
   stage_name           = var.api_stage_name
   auto_deploy          = var.api_auto_deploy
 
-  # Integrate Lambda at /hello with GET
   integrate_lambda    = var.api_integrate_lambda
   lambda_function_arn = module.lambda.arn
   lambda_route_path   = var.api_lambda_route_path
   lambda_method       = var.api_lambda_method
-
-  # HTTP API auto-deploy handles deployments; no mock needed
 
   tags = local.common_tags
 }
