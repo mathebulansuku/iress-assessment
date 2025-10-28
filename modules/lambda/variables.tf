@@ -22,6 +22,12 @@ variable "handler" {
   default     = "index.handler"
 }
 
+variable "source_dir" {
+  description = "Local directory containing the Lambda source code"
+  type        = string
+  default     = null
+}
+
 
 variable "environment" {
   description = "Environment variables for the function"

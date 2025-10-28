@@ -26,7 +26,7 @@ resource "aws_iam_role_policy_attachment" "basic_logs" {
 
 data "archive_file" "this" {
   type        = "zip"
-  source_dir  = "${path.root}/src"
+  source_dir  = coalesce(var.source_dir, "${path.root}/src")
   output_path = "${path.module}/lambda.zip"
 }
 
@@ -45,7 +45,7 @@ resource "aws_lambda_function" "this" {
   environment {
     variables = merge(var.environment, {
       DATASET_BUCKET = coalesce(var.dataset_bucket, "")
-      DATASET_KEY    = coalesce(var.dataset_key, "cities.json")
+      DATASET_KEY    = var.dataset_key
     })
   }
 
